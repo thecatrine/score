@@ -2,9 +2,10 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data.dataloader import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
-import plotly.express as px
-import plotly.figure_factory as ff
+#import plotly.express as px
+#import plotly.figure_factory as ff
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,23 +17,10 @@ from PIL import Image
 from score_model import Diffuser
 
 # %%
-from datasets import load_dataset
-
-dataset = load_dataset("mnist")
-
-def map_func(examples):
-    #import ipdb; ipdb.set_trace()
-    examples['pixels'] = []
-    for ex in examples['image']:
-        im = np.array(ex)
-        tensor = torch.Tensor(im)
-        examples['pixels'].append(tensor.unsqueeze(0))
-    
-    return examples
-
-train_dataset = dataset['train'].map(map_func, batched=True).with_format('torch')
-test_dataset = dataset['test'].map(map_func, batched=True).with_format('torch')
+import dataset
 # %%
+
+writer = SummaryWriter()
 
 def sliced_score_estimation_vr(score_net, samples, timesteps, n_particles=1):
     dup_samples = samples.unsqueeze(0).expand(n_particles, *samples.shape).contiguous().view(-1, *samples.shape[1:])
@@ -51,9 +39,9 @@ def sliced_score_estimation_vr(score_net, samples, timesteps, n_particles=1):
     loss = loss1 + loss2
     return loss.mean(), loss1.mean(), loss2.mean()
 
-batch_size = 32
+batch_size = 16
 train_dataloader = DataLoader(
-    train_dataset,
+    dataset.train_dataset,
     batch_size=batch_size,
     pin_memory=False,
     num_workers=0,
@@ -62,38 +50,51 @@ train_dataloader = DataLoader(
     sampler=None,
 )
 
-device = torch.device("mps")
+device = torch.device("cuda")
 
 diffuser_opts = {
     'normalization_groups': 32,
     'in_channels': 1,
     'out_channels': 1,
-    'channels': 32,
-    'num_head_channels': 8,
+    'channels': 256,
+    'num_head_channels': 64,
     'num_residuals': 6,
-    'channel_multiple_schedule': [1, 2],
+    'channel_multiple_schedule': [1, 2, 3],
     'interior_attention': 1,
 }
 
 model = Diffuser(**diffuser_opts).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
+scaler = torch.cuda.amp.GradScaler()
+
 
 for epoch in range(1):
     loader = iter(train_dataloader)
-    for batch in tqdm.tqdm(loader):
+    for i, batch in tqdm.tqdm(enumerate(loader)):
+        if i == 0:
+            fig = plt.imshow(batch['pixels'][0].squeeze().numpy())
+            #plt.show(fig)
         timesteps = torch.ones(batch['pixels'].shape[0])
         #import ipdb; ipdb.set_trace()
 
-        loss, _, _ = sliced_score_estimation_vr(
-            model, 
-            batch['pixels'].to(device), 
-            timesteps.to(device),
-        )
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            loss, _, _ = sliced_score_estimation_vr(
+                model, 
+                batch['pixels'].to(device), 
+                timesteps.to(device),
+            )
+
+        writer.add_scalar("loss", loss.item(), i)
 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
+    torch.save(model.state_dict(), f"model_l_{epoch}.pth")
+
+
+# %%
 
 # %%
