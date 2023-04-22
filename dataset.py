@@ -12,7 +12,6 @@ def map_func(examples):
         im = np.array(ex)
         tensor = torch.Tensor(im)
         normalized_tensor = tensor / 255.0
-        normalized_tensor += torch.randn(tensor.size())
         examples['pixels'].append(normalized_tensor.unsqueeze(0))
         
     return examples
