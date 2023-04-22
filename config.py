@@ -15,7 +15,7 @@ model_opts = {
 }
 
 optimizer_params = {
-    'lr': 0.001,
+    'lr': 0.0001,
 }
 
 def model_optimizer():

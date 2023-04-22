@@ -23,8 +23,8 @@ device = torch.device('cuda')
 diffuser_opts = {
     'normalization_groups': 32,
     'channels': 256,
-    'in_channels': 1,
-    'out_channels': 1,
+    'in_channels': 3,
+    'out_channels': 3,
     'num_head_channels': 64,
     'num_residuals': 6,
     'channel_multiple_schedule': [1, 2, 3],
@@ -33,7 +33,9 @@ diffuser_opts = {
 
 model = Diffuser(**diffuser_opts).to(device)
 
-model.load_state_dict(torch.load('model_latest.pth'))
+saved = torch.load('model_latest.pth')
+
+model.load_state_dict(saved['model'])
 model.eval()
 
 levels = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1]
@@ -109,24 +111,27 @@ def langevin(m, x0, dt, steps=100):
     return x
 # %%
 
-start = torch.rand((25, 1, 28, 28)).to(device)
+start = torch.rand((49, 3, 32, 32)).to(device)
 fig = plt.imshow(start.cpu().numpy()[0][0])
 plt.show(fig)
 
 with torch.no_grad():
     end = continuous(model, start.to(device), 1.0, 0.01, 100)
 # %%
+import loaders.loader_utils as utils
 
 end = end
 columns = []
 row = []
 for im in end:
-    row.append(torch.rearrange(im, 'cxy->xyc'))
-    if len(row) == 5:
-        columns.append(torch.cat(row, dim=1))
-        row = []
+    plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
+#     row.append(einops.rearrange(im, 'c x y -> x y c'))
+#     if len(row) == 7:
+#         columns.append(torch.cat(row, dim=1))
+#         row = []
 
-Image.fromarray(torch.cat(columns, dim=0).cpu().numpy()*255).convert("RGB")
+# all_ims = torch.cat(columns, dim=0).cpu().numpy()*255
+# Image.fromarray(all_ims, mode='RGB')
 
 # %%
 with torch.no_grad():

@@ -36,21 +36,6 @@ test_dataloader = loaders['val']
 
 writer = SummaryWriter()
 
-def sliced_score_estimation_vr(score_net, samples, timesteps, n_particles=1):
-    dup_samples = samples.unsqueeze(0).expand(n_particles, *samples.shape).contiguous().view(-1, *samples.shape[1:])
-    dup_samples.requires_grad_(True)
-    vectors = torch.randn_like(dup_samples)
-
-    grad1 = score_net(dup_samples, timesteps)
-    gradv = torch.sum(grad1 * vectors)
-    loss1 = torch.sum(grad1 * grad1, dim=-1) / 2.
-    grad2 = torch.autograd.grad(gradv, dup_samples, create_graph=True)[0]
-    loss2 = torch.sum(vectors * grad2, dim=-1)
-
-
-    loss = loss1 + loss2
-    return loss, loss1, loss2
-
 # %%
 def sigma(t):
     B = np.log(1)
@@ -79,32 +64,11 @@ def denoising_score_estimation(score_net, samples, timesteps):
 
     return loss.mean(dim=0)
 
-def anneal_dsm_score_estimation(scorenet, samples, labels, sigmas, anneal_power=2.):
-    used_sigmas = sigmas[labels].view(samples.shape[0], *([1] * len(samples.shape[1:])))
-    perturbed_samples = samples + torch.randn_like(samples) * used_sigmas
-    target = - 1 / (used_sigmas ** 2) * (perturbed_samples - samples)
-    scores = scorenet(perturbed_samples, labels)
-    target = target.view(target.shape[0], -1)
-    scores = scores.view(scores.shape[0], -1)
-    loss = 1 / 2. * ((scores - target) ** 2).sum(dim=-1) * used_sigmas.squeeze() ** anneal_power
-
-    return loss.mean(dim=0)
-
-# batch_size = 32
-# train_dataloader = DataLoader(
-#     dataset.train_dataset,
-#     batch_size=batch_size,
-#     pin_memory=False,
-#     num_workers=0,
-#     drop_last=False,
-#     shuffle=False,
-#     sampler=None,
-# )
-
 model, optimizer = config.model_optimizer()
 device = config.device
 
 scaler = torch.cuda.amp.GradScaler()
+lowest_loss = 10e10
 
 for epoch in range(100):
     loader = iter(train_dataloader)
@@ -143,12 +107,16 @@ for epoch in range(100):
 
         if i % 100 == 99:
             batch = next(iter(test_dataloader))
-            test_loss = denoising_score_estimation(model, batch[0].to(device), timesteps.to(device))
+            with torch.no_grad():
+                test_loss = denoising_score_estimation(model, batch[0].to(device), timesteps.to(device)).mean().item()
 
-            writer.add_scalar('loss/test', test_loss.mean().item(), i)
+            writer.add_scalar('loss/test', test_loss, i)
+            
+            if i % 1000 == 999:
+                if test_loss < lowest_loss:
+                    train_utils.save_state(model, optimizer, f"model_latest.pth")
 
-    train_utils.save_state(model, optimizer, f"model_latest.pth")
-    torch.save(model.state_dict(), f"model_latest.pth")
+                    lowest_loss = test_loss
 
 
 
