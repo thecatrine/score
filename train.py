@@ -18,6 +18,20 @@ from score_model import Diffuser
 
 # %%
 import dataset
+
+import loaders.datasets as ds
+import loaders.loader_utils as utils
+
+import train_utils
+import config
+# %%
+# Get twich dataset
+batch_size = 32
+data = ds.NewTwitchDataset(path='loaders/small32', batch_size=batch_size, shuffle=True, num_workers=8)
+loaders = next(data.dataloaders())
+
+train_dataloader = loaders['train']
+test_dataloader = loaders['val']
 # %%
 
 writer = SummaryWriter()
@@ -76,41 +90,30 @@ def anneal_dsm_score_estimation(scorenet, samples, labels, sigmas, anneal_power=
 
     return loss.mean(dim=0)
 
-batch_size = 32
-train_dataloader = DataLoader(
-    dataset.train_dataset,
-    batch_size=batch_size,
-    pin_memory=False,
-    num_workers=0,
-    drop_last=False,
-    shuffle=False,
-    sampler=None,
-)
+# batch_size = 32
+# train_dataloader = DataLoader(
+#     dataset.train_dataset,
+#     batch_size=batch_size,
+#     pin_memory=False,
+#     num_workers=0,
+#     drop_last=False,
+#     shuffle=False,
+#     sampler=None,
+# )
 
-device = torch.device("cuda")
-
-diffuser_opts = {
-        'normalization_groups': 32,
-        'in_channels': 1,
-        'out_channels': 1,
-        'channels': 256,
-        'num_head_channels': 64,
-        'num_residuals': 6,
-        'channel_multiple_schedule': [1, 2, 3],
-        'interior_attention': 1,
-    }
-
-model = Diffuser(**diffuser_opts).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+model, optimizer = config.model_optimizer()
+device = config.device
 
 scaler = torch.cuda.amp.GradScaler()
 
 for epoch in range(100):
     loader = iter(train_dataloader)
     for i, batch in enumerate(tqdm.tqdm(loader)):
-        pixels = batch['pixels']
+        #pixels = batch['pixels']
+        #import ipdb; ipdb.set_trace()
+        pixels = batch[0]
         if i == 0:
-            fig = plt.imshow(pixels[0].squeeze().numpy())
+            fig = plt.imshow(utils.tensor_to_image(pixels[0]))
             #plt.show(fig)
 
         # I hope it works to just bias the random rather than doing more math
@@ -131,13 +134,20 @@ for epoch in range(100):
 
         #loss = loss.mean()
 
-        writer.add_scalar("loss", loss.mean().item(), i)
+        writer.add_scalar("loss/train", loss.mean().item(), i)
 
         optimizer.zero_grad()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
 
+        if i % 100 == 99:
+            batch = next(iter(test_dataloader))
+            test_loss = denoising_score_estimation(model, batch[0].to(device), timesteps.to(device))
+
+            writer.add_scalar('loss/test', test_loss.mean().item(), i)
+
+    train_utils.save_state(model, optimizer, f"model_latest.pth")
     torch.save(model.state_dict(), f"model_latest.pth")
 
 
