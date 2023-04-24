@@ -1,9 +1,13 @@
 import torch
+import torchvision
 
-def save_state(model, optimizer, file):
+def save_state(epoch, test_loss, model, optimizer, scheduler, file):
     arrs = {
+        'epoch': epoch,
+        'best_test_loss': test_loss,
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict(),
     }
 
     torch.save(arrs, file)
@@ -23,3 +27,20 @@ def sliced_score_estimation_vr(score_net, samples, timesteps, n_particles=1):
 
     loss = loss1 + loss2
     return loss, loss1, loss2
+
+
+def mnist_rescale(f):
+    min = f.min()
+    x = f - min
+    x_max = x.max()
+    foo = x / x_max
+    return torchvision.transforms.ToPILImage()(foo**2)
+
+
+def scheduler_function(max_steps, warmup_frac, step):
+    frac = step / max_steps
+
+    if frac < warmup_frac:
+        return frac / warmup_frac
+    else:
+        return 1.0 - ((frac - warmup_frac) / (1.0 - warmup_frac))

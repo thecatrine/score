@@ -17,14 +17,22 @@ from score_model import Diffuser
 import dataset
 
 import einops
+import train_utils
 
 device = torch.device('cuda')
+
+CHANNELS = 3
+MODEL_FILE = 'model_latest.pth'
+#MODEL_FILE = 'model_latest_mnist.pth'
+
+MAX_SIGMA = 10.0
+MIN_SIGMA = 0.01
 
 diffuser_opts = {
     'normalization_groups': 32,
     'channels': 256,
-    'in_channels': 3,
-    'out_channels': 3,
+    'in_channels': CHANNELS,
+    'out_channels': CHANNELS,
     'num_head_channels': 64,
     'num_residuals': 6,
     'channel_multiple_schedule': [1, 2, 3],
@@ -33,37 +41,17 @@ diffuser_opts = {
 
 model = Diffuser(**diffuser_opts).to(device)
 
-saved = torch.load('model_latest.pth')
+saved = torch.load(MODEL_FILE)
 
 model.load_state_dict(saved['model'])
 model.eval()
 
-levels = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1]
 # %%
-def anneal_Langevin_dynamics(x_mod, scorenet, sigmas, n_steps_each=100, step_lr=0.00002):
-    images = []
-
-    with torch.no_grad():
-        for c, sigma in tqdm.tqdm(enumerate(sigmas), total=len(sigmas), desc='annealed Langevin dynamics sampling'):
-            labels = torch.ones(x_mod.shape[0], device=x_mod.device) * c
-            labels = labels.long()
-            step_size = step_lr * (sigma / sigmas[-1]) ** 2
-            for s in range(n_steps_each):
-                images.append(torch.clamp(x_mod, 0.0, 1.0).to('cpu'))
-                noise = torch.randn_like(x_mod) * torch.sqrt(step_size * 2)
-                grad = scorenet(x_mod, torch.ones(x_mod.shape[0], device=x_mod.device)*sigma)
-                x_mod = x_mod + step_size * grad + noise
-                # print("class: {}, step_size: {}, mean {}, max {}".format(c, step_size, grad.abs().mean(),
-                #                                                          grad.abs().max()))
-
-        return images
-
 
 def continuous(m, samples, t_max, t_min, steps):
-    t = t_max
     dt = (t_min - t_max) / steps
 
-    x = samples
+    x = samples.clone()
 
     for t in tqdm.tqdm(np.linspace(t_max, t_min, steps)):
         dw = (torch.randn_like(x)*dt).to(device)
@@ -72,49 +60,23 @@ def continuous(m, samples, t_max, t_min, steps):
         gt2 = dsigmasquared(t)
         dx = -1.0*gt2*score*dt + np.sqrt(gt2)*dw
 
+        #import pdb; pdb.set_trace()
+
         x = x + dx
-        t = t + dt
 
     return x
 
 
 def dsigmasquared(t):
-    B = 1.0
-    A = 0.01
+    B = MAX_SIGMA
+    A = MIN_SIGMA
     return np.exp(2*(np.log(B/A)*t + np.log(A)))*2*np.log(B/A)
 
-def langevin(m, x0, dt, steps=100):
-    dist = torch.distributions.MultivariateNormal(torch.zeros(28*28), torch.eye(28*28))
-    x = x0
 
-    level_0 = levels[0]
-
-    for sigma in reversed(levels):
-        frac = (sigma / level_0 ) ** 2
-        for i in tqdm.tqdm(range(steps)):
-            timesteps = sigma * torch.ones(x.shape[0]).to(device)
-            mx = m(x, timesteps)
-            
-            eps = dt * frac
-
-            bt = dist.sample(torch.Size([x.shape[0]])).reshape(x.shape).to(device)
-            dx = 0.5*mx*eps + np.sqrt(eps)*bt
-
-            #import ipdb; ipdb.set_trace()
-
-            x = x + dx
-
-            del bt
-            del dx
-        
-        plt.show(plt.imshow(x[0][0].cpu().numpy()))
-    return x
-# %%
-
-start = torch.rand((49, 3, 32, 32)).to(device)
+start = torch.rand((5, CHANNELS, 32, 32)).to(device)
 fig = plt.imshow(start.cpu().numpy()[0][0])
 plt.show(fig)
-
+# %%
 with torch.no_grad():
     end = continuous(model, start.to(device), 1.0, 0.01, 100)
 # %%
@@ -124,7 +86,10 @@ end = end
 columns = []
 row = []
 for im in end:
-    plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
+    if CHANNELS == 1:
+        plt.show(plt.imshow(train_utils.mnist_rescale(im)))
+    else:
+        plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
 #     row.append(einops.rearrange(im, 'c x y -> x y c'))
 #     if len(row) == 7:
 #         columns.append(torch.cat(row, dim=1))
@@ -133,22 +98,5 @@ for im in end:
 # all_ims = torch.cat(columns, dim=0).cpu().numpy()*255
 # Image.fromarray(all_ims, mode='RGB')
 
-# %%
-with torch.no_grad():
-    end = langevin(model, start, 2e-5, steps=100)
 
-for im in end:
-    plt.show(plt.imshow(im[0].cpu().numpy()))
-    plt.show(plt.imshow(Image.fromarray(im[0].cpu().numpy()*255)))
-# %%
-
-# %%
-samples = torch.randn(5, 1, 28, 28).to(device)
-sigmas = torch.Tensor(levels).to(device)
-
-images = anneal_Langevin_dynamics(samples, model, sigmas, 100, 0.00002)
-# %%
-for im in images[-1]:
-    plt.show(plt.imshow(im[0].cpu().numpy()))
-    plt.show(plt.imshow(Image.fromarray(im[0].cpu().numpy()*255)))
 # %%

@@ -24,29 +24,44 @@ import loaders.loader_utils as utils
 
 import train_utils
 import config
+import einops
 # %%
 # Get twich dataset
 batch_size = 32
 data = ds.NewTwitchDataset(path='loaders/small32', batch_size=batch_size, shuffle=True, num_workers=8)
 loaders = next(data.dataloaders())
 
+# Is this RGBA?
 train_dataloader = loaders['train']
 test_dataloader = loaders['val']
 # %%
 
+# train_dataloader = DataLoader(
+#     dataset.train_dataset,
+#     batch_size=batch_size,
+#     pin_memory=False,
+#     num_workers=0,
+#     drop_last=False,
+#     shuffle=False,
+#     sampler=None,
+# )
+
 writer = SummaryWriter()
 
 # %%
+MAX_SIGMA = 3
+MIN_SIGMA = 0.01
 def sigma(t):
-    B = np.log(1)
-    A = np.log(0.01)
+    B = np.log(MAX_SIGMA)
+    A = np.log(MIN_SIGMA)
 
     C = (B-A)*t + A
 
     return torch.exp(C)
-
 # %%
 
+
+# %%
 def denoising_score_estimation(score_net, samples, timesteps):
     sigmas = sigma(timesteps)
     #import ipdb; ipdb.set_trace()
@@ -64,20 +79,43 @@ def denoising_score_estimation(score_net, samples, timesteps):
 
     return loss.mean(dim=0)
 
+
+EPOCHS = 3
+
 model, optimizer = config.model_optimizer()
 device = config.device
+
+def load_model():
+    global model, optimizer
+    loaded = torch.load('model_latest_blur.pth')
+    #import ipdb; ipdb.set_trace()
+
+    model.load_state_dict(loaded['model'])
+    optimizer.load_state_dict(loaded['optimizer'])
+#load_model()
+
+scheduler = torch.optim.lr_scheduler.LambdaLR(
+    optimizer, 
+    lambda e: train_utils.scheduler_function(EPOCHS*len(train_dataloader), 0, e),
+)
 
 scaler = torch.cuda.amp.GradScaler()
 lowest_loss = 10e10
 
-for epoch in range(100):
+fixed_im = None
+
+for epoch in range(EPOCHS):
     loader = iter(train_dataloader)
     for i, batch in enumerate(tqdm.tqdm(loader)):
-        #pixels = batch['pixels']
+        if fixed_im is None:
+            fixed_im = batch[0][0]
+        #pixels = batch['pixels'].repeat(1, 3, 1, 1)
         #import ipdb; ipdb.set_trace()
         pixels = batch[0]
-        if i == 0:
-            fig = plt.imshow(utils.tensor_to_image(pixels[0]))
+        #pixels = fixed_im.repeat(batch_size, 1, 1, 1)
+        #if i == 0:
+            #fig = plt.imshow(utils.tensor_to_image(pixels[0]))
+            #fig = plt.imshow(rescale(pixels[0]))
             #plt.show(fig)
 
         # I hope it works to just bias the random rather than doing more math
@@ -104,6 +142,9 @@ for epoch in range(100):
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+        scheduler.step()
+
+        writer.add_scalar('lr', scheduler.get_last_lr()[0], i)
 
         if i % 100 == 99:
             batch = next(iter(test_dataloader))
@@ -114,9 +155,15 @@ for epoch in range(100):
             
             if i % 1000 == 999:
                 if test_loss < lowest_loss:
-                    train_utils.save_state(model, optimizer, f"model_latest.pth")
+                    train_utils.save_state(
+                        epoch, test_loss, model, optimizer, scheduler, f"model_latest.pth"
+                    )
 
                     lowest_loss = test_loss
+    
+    train_utils.save_state(
+        epoch, test_loss, model, optimizer, scheduler, f"model_latest.pth"
+    )
 
 
 
