@@ -25,7 +25,7 @@ CHANNELS = 3
 MODEL_FILE = 'model_latest.pth'
 #MODEL_FILE = 'model_latest_mnist.pth'
 
-MAX_SIGMA = 10.0
+MAX_SIGMA = 1.0
 MIN_SIGMA = 0.01
 
 diffuser_opts = {
@@ -73,7 +73,7 @@ def dsigmasquared(t):
     return np.exp(2*(np.log(B/A)*t + np.log(A)))*2*np.log(B/A)
 
 
-start = torch.rand((5, CHANNELS, 32, 32)).to(device)
+start = torch.rand((5, CHANNELS, 32, 32)).to(device)#*MAX_SIGMA
 fig = plt.imshow(start.cpu().numpy()[0][0])
 plt.show(fig)
 # %%
@@ -86,10 +86,10 @@ end = end
 columns = []
 row = []
 for im in end:
-    if CHANNELS == 1:
-        plt.show(plt.imshow(train_utils.mnist_rescale(im)))
-    else:
-        plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
+    #if CHANNELS == 1:
+    plt.show(plt.imshow(train_utils.mnist_rescale(im)))
+    #else:
+    #    plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
 #     row.append(einops.rearrange(im, 'c x y -> x y c'))
 #     if len(row) == 7:
 #         columns.append(torch.cat(row, dim=1))

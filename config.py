@@ -1,6 +1,8 @@
 import torch
 import score_model
 
+from lion_pytorch import Lion
+
 device = torch.device("cuda")
 
 model_opts = {
@@ -21,5 +23,7 @@ optimizer_params = {
 def model_optimizer():
     model = score_model.Diffuser(**model_opts).to(device)
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
+
+    #optimizer = Lion(model.parameters(), lr=1e-5, weight_decay=1e-2)
 
     return model, optimizer

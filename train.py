@@ -18,6 +18,7 @@ from score_model import Diffuser
 
 # %%
 import dataset
+import datasets
 
 import loaders.datasets as ds
 import loaders.loader_utils as utils
@@ -28,28 +29,38 @@ import einops
 # %%
 # Get twich dataset
 batch_size = 32
-data = ds.NewTwitchDataset(path='loaders/small32', batch_size=batch_size, shuffle=True, num_workers=8)
-loaders = next(data.dataloaders())
+#data = ds.NewTwitchDataset(path='loaders/small32', batch_size=batch_size, shuffle=True, num_workers=8)
+#loaders = next(data.dataloaders())
 
 # Is this RGBA?
-train_dataloader = loaders['train']
-test_dataloader = loaders['val']
+#train_dataloader = loaders['train']
+#test_dataloader = loaders['val']
 # %%
 
-# train_dataloader = DataLoader(
-#     dataset.train_dataset,
-#     batch_size=batch_size,
-#     pin_memory=False,
-#     num_workers=0,
-#     drop_last=False,
-#     shuffle=False,
-#     sampler=None,
-# )
+train_dataloader = DataLoader(
+    dataset.train_dataset,
+    batch_size=batch_size,
+    pin_memory=False,
+    num_workers=0,
+    drop_last=False,
+    shuffle=False,
+    sampler=None,
+)
+
+test_dataloader = DataLoader(
+    dataset.test_dataset,
+    batch_size=batch_size,
+    pin_memory=False,
+    num_workers=0,
+    drop_last=False,
+    shuffle=False,
+    sampler=None,
+)
 
 writer = SummaryWriter()
 
 # %%
-MAX_SIGMA = 3
+MAX_SIGMA = 1
 MIN_SIGMA = 0.01
 def sigma(t):
     B = np.log(MAX_SIGMA)
@@ -80,14 +91,14 @@ def denoising_score_estimation(score_net, samples, timesteps):
     return loss.mean(dim=0)
 
 
-EPOCHS = 3
+EPOCHS = 120
 
 model, optimizer = config.model_optimizer()
 device = config.device
 
 def load_model():
     global model, optimizer
-    loaded = torch.load('model_latest_blur.pth')
+    loaded = torch.load('model_latest.pth')
     #import ipdb; ipdb.set_trace()
 
     model.load_state_dict(loaded['model'])
@@ -107,11 +118,11 @@ fixed_im = None
 for epoch in range(EPOCHS):
     loader = iter(train_dataloader)
     for i, batch in enumerate(tqdm.tqdm(loader)):
-        if fixed_im is None:
-            fixed_im = batch[0][0]
+        #if fixed_im is None:
+        #    fixed_im = batch[0]
         #pixels = batch['pixels'].repeat(1, 3, 1, 1)
         #import ipdb; ipdb.set_trace()
-        pixels = batch[0]
+        pixels = batch['pixels'].squeeze(1)
         #pixels = fixed_im.repeat(batch_size, 1, 1, 1)
         #if i == 0:
             #fig = plt.imshow(utils.tensor_to_image(pixels[0]))
@@ -120,6 +131,7 @@ for epoch in range(EPOCHS):
 
         # I hope it works to just bias the random rather than doing more math
 
+        #import ipdb; ipdb.set_trace()
 
         timesteps = torch.rand((pixels.shape[0],))
 
@@ -149,20 +161,20 @@ for epoch in range(EPOCHS):
         if i % 100 == 99:
             batch = next(iter(test_dataloader))
             with torch.no_grad():
-                test_loss = denoising_score_estimation(model, batch[0].to(device), timesteps.to(device)).mean().item()
+                test_loss = denoising_score_estimation(model, batch['pixels'].squeeze(1).to(device), timesteps.to(device)).mean().item()
 
             writer.add_scalar('loss/test', test_loss, i)
             
             if i % 1000 == 999:
                 if test_loss < lowest_loss:
                     train_utils.save_state(
-                        epoch, test_loss, model, optimizer, scheduler, f"model_latest.pth"
+                        epoch, test_loss, model, optimizer, scheduler, f"model_latest_loss.pth"
                     )
 
                     lowest_loss = test_loss
     
     train_utils.save_state(
-        epoch, test_loss, model, optimizer, scheduler, f"model_latest.pth"
+        epoch, test_loss, model, optimizer, scheduler, f"model_latest_epoch.pth"
     )
 
 
