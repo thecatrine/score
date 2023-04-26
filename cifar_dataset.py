@@ -13,8 +13,8 @@ def map_func(examples):
     for ex in examples['img']:
         im = np.array(ex)
         tensor = torch.Tensor(im)
-        normalized_tensor = tensor / 255.0
-        examples['pixels'].append(einops.rearrange(normalized_tensor.unsqueeze(0), 'b x y c -> b c x y'))
+        normalized_tensor = (tensor) / 256.0
+        examples['pixels'].append(einops.rearrange(normalized_tensor, 'x y c -> c x y'))
         
     return examples
 

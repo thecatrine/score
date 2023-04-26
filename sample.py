@@ -14,7 +14,7 @@ import tqdm
 from PIL import Image
 
 from score_model import Diffuser
-import dataset
+import mnist_dataset as mnist_dataset
 
 import einops
 import train_utils
@@ -22,10 +22,10 @@ import train_utils
 device = torch.device('cuda')
 
 CHANNELS = 3
-MODEL_FILE = 'model_latest.pth'
+MODEL_FILE = 'model_latest_epoch.pth'
 #MODEL_FILE = 'model_latest_mnist.pth'
 
-MAX_SIGMA = 1.0
+MAX_SIGMA = 50.0
 MIN_SIGMA = 0.01
 
 diffuser_opts = {
@@ -48,17 +48,23 @@ model.eval()
 
 # %%
 
-def continuous(m, samples, t_max, t_min, steps):
-    dt = (t_min - t_max) / steps
+
+def continuous(m, samples, steps):
+    dt = -1 / steps
 
     x = samples.clone()
 
-    for t in tqdm.tqdm(np.linspace(t_max, t_min, steps)):
-        dw = (torch.randn_like(x)*dt).to(device)
-        score = m(x, t*torch.ones((samples.shape[0],)).to(device))
+    for t in tqdm.tqdm(np.linspace(1, 0, steps)):
+        
+        # DW is normal centered at 0 with std = sqrt(dt)
+        dw = ( torch.randn_like(x) * np.sqrt(-dt) ).to(device)
 
-        gt2 = dsigmasquared(t)
-        dx = -1.0*gt2*score*dt + np.sqrt(gt2)*dw
+        # Rescale score by 1/ sigmas
+        score = m(x, t*torch.ones((samples.shape[0],)).to(device)) / sigma(t)
+
+
+        gt = diffusion(t)
+        dx = -1.0*(gt**2)*score*dt + gt*dw
 
         #import pdb; pdb.set_trace()
 
@@ -67,18 +73,43 @@ def continuous(m, samples, t_max, t_min, steps):
     return x
 
 
+def sigma(t):
+    return MIN_SIGMA * (MAX_SIGMA / MIN_SIGMA) ** t
+    #C = (B-A)*t + A
+
+    #return np.exp(C)
+
+B = np.log(MAX_SIGMA)
+A = np.log(MIN_SIGMA)
+
 def dsigmasquared(t):
-    B = MAX_SIGMA
-    A = MIN_SIGMA
-    return np.exp(2*(np.log(B/A)*t + np.log(A)))*2*np.log(B/A)
+    return 2*(B-A)*sigma(t)
+
+# Taken from code in paper.
+# Had a mismatch between g(t) and g(t)^2 before after rewrite
+def diffusion(t):
+    s = sigma(t)
+    diffusion = s * torch.sqrt(torch.tensor(2 * (B - A),
+                                                device=device))
+    
+    return diffusion
 
 
-start = torch.rand((5, CHANNELS, 32, 32)).to(device)#*MAX_SIGMA
+def toimage(foo):
+    return Image.fromarray(einops.rearrange(((foo)*256).to(torch.uint8), 'c x y -> x y c').cpu().numpy())
+
+DIM = 5
+
+start = torch.rand((DIM**2, CHANNELS, 32, 32)).to(device)
 fig = plt.imshow(start.cpu().numpy()[0][0])
 plt.show(fig)
 # %%
-with torch.no_grad():
-    end = continuous(model, start.to(device), 1.0, 0.01, 100)
+def sample_from(start):
+    with torch.no_grad():
+        end = continuous(model, start.to(device), 100)
+    return end
+
+end = sample_from(start)
 # %%
 import loaders.loader_utils as utils
 
@@ -86,17 +117,15 @@ end = end
 columns = []
 row = []
 for im in end:
-    #if CHANNELS == 1:
-    plt.show(plt.imshow(train_utils.mnist_rescale(im)))
-    #else:
-    #    plt.show(plt.imshow(utils.tensor_to_image(im.cpu())))
-#     row.append(einops.rearrange(im, 'c x y -> x y c'))
-#     if len(row) == 7:
-#         columns.append(torch.cat(row, dim=1))
-#         row = []
+    row.append(einops.rearrange(im, 'c x y -> x y c'))
+    if len(row) == DIM:
+        columns.append(torch.cat(row, dim=1))
+        #import pdb; pdb.set_trace()
+        row = []
 
-# all_ims = torch.cat(columns, dim=0).cpu().numpy()*255
-# Image.fromarray(all_ims, mode='RGB')
+all_ims = (torch.cat(columns, dim=0).cpu()*256).to(torch.uint8).numpy()
+print(all_ims.shape)
+Image.fromarray(all_ims, mode='RGB')
 
 
 # %%

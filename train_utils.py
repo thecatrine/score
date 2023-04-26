@@ -30,11 +30,8 @@ def sliced_score_estimation_vr(score_net, samples, timesteps, n_particles=1):
 
 
 def mnist_rescale(f):
-    min = f.min()
-    x = f - min
-    x_max = x.max()
-    foo = x / x_max
-    return torchvision.transforms.ToPILImage()(foo**2)
+    f = f * 255
+    return torchvision.transforms.ToPILImage()(f)
 
 
 def scheduler_function(max_steps, warmup_frac, step):

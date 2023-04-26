@@ -17,7 +17,8 @@ from PIL import Image
 from score_model import Diffuser
 
 # %%
-import dataset
+import mnist_dataset
+import cifar_dataset
 import datasets
 
 import loaders.datasets as ds
@@ -37,8 +38,10 @@ batch_size = 32
 #test_dataloader = loaders['val']
 # %%
 
+used_dataset = cifar_dataset
+
 train_dataloader = DataLoader(
-    dataset.train_dataset,
+    used_dataset.train_dataset,
     batch_size=batch_size,
     pin_memory=False,
     num_workers=0,
@@ -48,7 +51,7 @@ train_dataloader = DataLoader(
 )
 
 test_dataloader = DataLoader(
-    dataset.test_dataset,
+    used_dataset.test_dataset,
     batch_size=batch_size,
     pin_memory=False,
     num_workers=0,
@@ -60,7 +63,7 @@ test_dataloader = DataLoader(
 writer = SummaryWriter()
 
 # %%
-MAX_SIGMA = 1
+MAX_SIGMA = 50
 MIN_SIGMA = 0.01
 def sigma(t):
     B = np.log(MAX_SIGMA)
@@ -69,8 +72,6 @@ def sigma(t):
     C = (B-A)*t + A
 
     return torch.exp(C)
-# %%
-
 
 # %%
 def denoising_score_estimation(score_net, samples, timesteps):
@@ -79,26 +80,25 @@ def denoising_score_estimation(score_net, samples, timesteps):
 
     reshaped_sigmas = sigmas.reshape(samples.shape[0], 1, 1, 1)
 
-    noise = torch.randn_like(samples)*reshaped_sigmas
-    target = (-1 * noise) / (reshaped_sigmas ** 2)
+    z = torch.randn_like(samples)
+    noise = z*reshaped_sigmas
     
-    scores = score_net(samples + noise, timesteps)
-    target = target.view(target.shape[0], -1)
-    scores = scores.view(scores.shape[0], -1)
+    # Rescale output of score net by 1/sigma
+    scores = score_net(samples + noise, timesteps) / reshaped_sigmas
 
-    loss = 1 / 2. * ((scores - target) ** 2).sum(dim=-1) * sigmas.squeeze() ** 2
+    loss = 0.5 * torch.square(scores*reshaped_sigmas + z)
 
-    return loss.mean(dim=0)
+    return loss.mean()
 
 
-EPOCHS = 120
+EPOCHS = 3
 
 model, optimizer = config.model_optimizer()
 device = config.device
 
 def load_model():
     global model, optimizer
-    loaded = torch.load('model_latest.pth')
+    loaded = torch.load('model_latest_loss.pth')
     #import ipdb; ipdb.set_trace()
 
     model.load_state_dict(loaded['model'])
@@ -122,7 +122,9 @@ for epoch in range(EPOCHS):
         #    fixed_im = batch[0]
         #pixels = batch['pixels'].repeat(1, 3, 1, 1)
         #import ipdb; ipdb.set_trace()
-        pixels = batch['pixels'].squeeze(1)
+        pixels = batch['pixels']
+        
+        #import ipdb; ipdb.set_trace()
         #pixels = fixed_im.repeat(batch_size, 1, 1, 1)
         #if i == 0:
             #fig = plt.imshow(utils.tensor_to_image(pixels[0]))
@@ -142,6 +144,7 @@ for epoch in range(EPOCHS):
             #     timesteps.to(device),
             # )
             loss = denoising_score_estimation(model, pixels.to(device), timesteps.to(device))
+            #loss = alternate_estimation(model, pixels.to(device), timesteps.to(device))
             #loss = anneal_dsm_score_estimation(model, pixels.to(device), ints, levels.to(device))
         
         #loss = 0.5*loss * timesteps.to(device)**2
@@ -161,7 +164,7 @@ for epoch in range(EPOCHS):
         if i % 100 == 99:
             batch = next(iter(test_dataloader))
             with torch.no_grad():
-                test_loss = denoising_score_estimation(model, batch['pixels'].squeeze(1).to(device), timesteps.to(device)).mean().item()
+                test_loss = denoising_score_estimation(model, batch['pixels'].to(device), timesteps.to(device)).mean().item()
 
             writer.add_scalar('loss/test', test_loss, i)
             
