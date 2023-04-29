@@ -17,8 +17,8 @@ from PIL import Image
 from score_model import Diffuser
 
 # %%
-import mnist_dataset
-import cifar_dataset
+#import mnist_dataset
+#import cifar_dataset
 import datasets
 
 import loaders.datasets as ds
@@ -30,35 +30,35 @@ import einops
 # %%
 # Get twich dataset
 batch_size = 32
-#data = ds.NewTwitchDataset(path='loaders/small32', batch_size=batch_size, shuffle=True, num_workers=8)
-#loaders = next(data.dataloaders())
+data = ds.NewTwitchDataset(path='loaders/twitch', batch_size=batch_size, shuffle=True, num_workers=8)
+loaders = next(data.dataloaders())
 
 # Is this RGBA?
-#train_dataloader = loaders['train']
-#test_dataloader = loaders['val']
+train_dataloader = loaders['train']
+test_dataloader = loaders['val']
 # %%
 
-used_dataset = cifar_dataset
+# used_dataset = cifar_dataset
 
-train_dataloader = DataLoader(
-    used_dataset.train_dataset,
-    batch_size=batch_size,
-    pin_memory=False,
-    num_workers=0,
-    drop_last=False,
-    shuffle=False,
-    sampler=None,
-)
+# train_dataloader = DataLoader(
+#     used_dataset.train_dataset,
+#     batch_size=batch_size,
+#     pin_memory=False,
+#     num_workers=0,
+#     drop_last=False,
+#     shuffle=False,
+#     sampler=None,
+# )
 
-test_dataloader = DataLoader(
-    used_dataset.test_dataset,
-    batch_size=batch_size,
-    pin_memory=False,
-    num_workers=0,
-    drop_last=False,
-    shuffle=False,
-    sampler=None,
-)
+# test_dataloader = DataLoader(
+#     used_dataset.test_dataset,
+#     batch_size=batch_size,
+#     pin_memory=False,
+#     num_workers=0,
+#     drop_last=False,
+#     shuffle=False,
+#     sampler=None,
+# )
 
 writer = SummaryWriter()
 
@@ -103,7 +103,7 @@ def load_model():
 
     model.load_state_dict(loaded['model'])
     optimizer.load_state_dict(loaded['optimizer'])
-#load_model()
+load_model()
 
 scheduler = torch.optim.lr_scheduler.LambdaLR(
     optimizer, 
@@ -122,7 +122,8 @@ for epoch in range(EPOCHS):
         #    fixed_im = batch[0]
         #pixels = batch['pixels'].repeat(1, 3, 1, 1)
         #import ipdb; ipdb.set_trace()
-        pixels = batch['pixels']
+#        pixels = batch['pixels']
+        pixels = batch[0]
         
         #import ipdb; ipdb.set_trace()
         #pixels = fixed_im.repeat(batch_size, 1, 1, 1)
@@ -164,21 +165,22 @@ for epoch in range(EPOCHS):
         if i % 100 == 99:
             batch = next(iter(test_dataloader))
             with torch.no_grad():
-                test_loss = denoising_score_estimation(model, batch['pixels'].to(device), timesteps.to(device)).mean().item()
+                test_loss = denoising_score_estimation(model, batch[0].to(device), timesteps.to(device)).mean().item()
 
             writer.add_scalar('loss/test', test_loss, i)
             
             if i % 1000 == 999:
                 if test_loss < lowest_loss:
+                    print("Saving with test loss", test_loss)
                     train_utils.save_state(
                         epoch, test_loss, model, optimizer, scheduler, f"model_latest_loss.pth"
                     )
 
                     lowest_loss = test_loss
     
-    train_utils.save_state(
-        epoch, test_loss, model, optimizer, scheduler, f"model_latest_epoch.pth"
-    )
+    #train_utils.save_state(
+    #    epoch, test_loss, model, optimizer, scheduler, f"model_latest_epoch.pth"
+    #)
 
 
 

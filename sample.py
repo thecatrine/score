@@ -14,7 +14,7 @@ import tqdm
 from PIL import Image
 
 from score_model import Diffuser
-import mnist_dataset as mnist_dataset
+#import mnist_dataset as mnist_dataset
 
 import einops
 import train_utils
@@ -22,7 +22,7 @@ import train_utils
 device = torch.device('cuda')
 
 CHANNELS = 3
-MODEL_FILE = 'model_latest_epoch.pth'
+MODEL_FILE = 'model_latest_loss.pth'
 #MODEL_FILE = 'model_latest_mnist.pth'
 
 MAX_SIGMA = 50.0
@@ -106,26 +106,36 @@ plt.show(fig)
 # %%
 def sample_from(start):
     with torch.no_grad():
-        end = continuous(model, start.to(device), 100)
+        end = continuous(model, start.to(device), 1000)
     return end
 
 end = sample_from(start)
 # %%
 import loaders.loader_utils as utils
 
+# end = end
+# columns = []
+# row = []
+# for im in end:
+#     row.append(einops.rearrange(im, 'c x y -> x y c'))
+#     if len(row) == DIM:
+#         columns.append(torch.cat(row, dim=1))
+#         #import pdb; pdb.set_trace()
+#         row = []
 end = end
 columns = []
 row = []
 for im in end:
-    row.append(einops.rearrange(im, 'c x y -> x y c'))
+    row.append(im)
     if len(row) == DIM:
-        columns.append(torch.cat(row, dim=1))
+        columns.append(torch.cat(row, dim=2))
         #import pdb; pdb.set_trace()
         row = []
 
-all_ims = (torch.cat(columns, dim=0).cpu()*256).to(torch.uint8).numpy()
+all_ims = (torch.cat(columns, dim=1).cpu())
 print(all_ims.shape)
-Image.fromarray(all_ims, mode='RGB')
+utils.tensor_to_image(all_ims)
+#Image.fromarray(all_ims, mode='RGB')
 
 
 # %%
