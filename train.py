@@ -91,7 +91,7 @@ def denoising_score_estimation(score_net, samples, timesteps):
     return loss.mean()
 
 
-EPOCHS = 3
+EPOCHS = 20
 
 model, optimizer = config.model_optimizer()
 device = config.device
@@ -107,7 +107,7 @@ load_model()
 
 scheduler = torch.optim.lr_scheduler.LambdaLR(
     optimizer, 
-    lambda e: train_utils.scheduler_function(EPOCHS*len(train_dataloader), 0, e),
+    lambda e: train_utils.scheduler_function(EPOCHS*len(train_dataloader), 0.1, e),
 )
 
 scaler = torch.cuda.amp.GradScaler()

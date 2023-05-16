@@ -70,6 +70,16 @@ def continuous(m, samples, steps):
 
         x = x + dx
 
+        # Corrector?
+
+        # z = torch.randn_like(x)
+
+        # g = m(x, t*torch.ones((samples.shape[0],)).to(device)) / sigma(t)
+
+        # epsilon = 2*(z.norm() / g.norm())**2
+
+        # x = x + epsilon*g + torch.sqrt(2*epsilon)*z
+
     return x
 
 
@@ -100,7 +110,8 @@ def toimage(foo):
 
 DIM = 5
 
-start = torch.rand((DIM**2, CHANNELS, 32, 32)).to(device)
+#start = torch.rand((DIM**2, CHANNELS, 32, 32)).to(device)
+start = torch.randn((DIM**2, CHANNELS, 32, 32)).to(device)*50.0
 fig = plt.imshow(start.cpu().numpy()[0][0])
 plt.show(fig)
 # %%
@@ -113,28 +124,31 @@ end = sample_from(start)
 # %%
 import loaders.loader_utils as utils
 
-# end = end
-# columns = []
-# row = []
-# for im in end:
-#     row.append(einops.rearrange(im, 'c x y -> x y c'))
-#     if len(row) == DIM:
-#         columns.append(torch.cat(row, dim=1))
-#         #import pdb; pdb.set_trace()
-#         row = []
-end = end
-columns = []
-row = []
-for im in end:
-    row.append(im)
-    if len(row) == DIM:
-        columns.append(torch.cat(row, dim=2))
-        #import pdb; pdb.set_trace()
-        row = []
+def display_as_grid(end):
+    # end = end
+    # columns = []
+    # row = []
+    # for im in end:
+    #     row.append(einops.rearrange(im, 'c x y -> x y c'))
+    #     if len(row) == DIM:
+    #         columns.append(torch.cat(row, dim=1))
+    #         #import pdb; pdb.set_trace()
+    #         row = []
+    end = end
+    columns = []
+    row = []
+    for im in end:
+        row.append(im)
+        if len(row) == DIM:
+            columns.append(torch.cat(row, dim=2))
+            #import pdb; pdb.set_trace()
+            row = []
 
-all_ims = (torch.cat(columns, dim=1).cpu())
-print(all_ims.shape)
-utils.tensor_to_image(all_ims)
+    all_ims = (torch.cat(columns, dim=1).cpu())
+    print(all_ims.shape)
+    return utils.tensor_to_image(all_ims)
+
+display_as_grid(end)
 #Image.fromarray(all_ims, mode='RGB')
 
 
